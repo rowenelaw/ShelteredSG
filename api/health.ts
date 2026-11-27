@@ -192,6 +192,70 @@ async function checkLtaHealth(liveProbe: boolean): Promise<{
   }
 }
 
+const RAINFALL_ENDPOINT =
+  'https://api-open.data.gov.sg/v2/real-time/api/rainfall';
+
+async function checkRainHealth(liveProbe: boolean): Promise<{
+  configured: boolean;
+  authRequired: boolean;
+  status: ServiceStatus;
+  upstream: string;
+  upstreamReachable?: boolean;
+  httpStatus?: number;
+  stationCount?: number;
+}> {
+  if (!liveProbe) {
+    return {
+      configured: true,
+      authRequired: false,
+      status: 'configured',
+      upstream: RAINFALL_ENDPOINT,
+    };
+  }
+
+  try {
+    const resp = await fetch(RAINFALL_ENDPOINT, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!resp.ok) {
+      return {
+        configured: true,
+        authRequired: false,
+        status: 'degraded',
+        upstream: RAINFALL_ENDPOINT,
+        upstreamReachable: false,
+        httpStatus: resp.status,
+      };
+    }
+    const json = (await resp.json()) as {
+      code?: number;
+      data?: { stations?: unknown[] };
+    };
+    const isValidPayload = json.code === 0 && Array.isArray(json.data?.stations);
+    return {
+      configured: true,
+      authRequired: false,
+      status: isValidPayload ? 'healthy' : 'degraded',
+      upstream: RAINFALL_ENDPOINT,
+      upstreamReachable: isValidPayload,
+      httpStatus: resp.status,
+      stationCount: json.data?.stations?.length,
+    };
+  } catch {
+    return {
+      configured: true,
+      authRequired: false,
+      status: 'degraded',
+      upstream: RAINFALL_ENDPOINT,
+      upstreamReachable: false,
+    };
+  }
+}
+
 export default async function handler(
   req: ServerlessRequest,
   res: ServerlessResponse
@@ -205,12 +269,16 @@ export default async function handler(
   const probeParam = readQueryParam(req, 'probe').toLowerCase();
   const liveProbe = probeParam === '1' || probeParam === 'true';
 
-  const [lta, onemap] = await Promise.all([
+  const [lta, onemap, rainfall] = await Promise.all([
     checkLtaHealth(liveProbe),
     checkOneMapHealth(liveProbe),
+    checkRainHealth(liveProbe),
   ]);
 
-  const anyDegraded = lta.status === 'degraded' || onemap.status === 'degraded';
+  const anyDegraded =
+    lta.status === 'degraded' ||
+    onemap.status === 'degraded' ||
+    rainfall.status === 'degraded';
 
   sendJson(res, anyDegraded ? 503 : 200, {
     ok: !anyDegraded,
@@ -218,6 +286,7 @@ export default async function handler(
     probeMode: liveProbe ? 'live' : 'config',
     ltaAccountKeyConfigured: lta.configured,
     oneMapConfigured: onemap.configured,
+    rainApiConfigured: rainfall.configured,
     services: {
       ltaDataMall: lta,
       oneMap: {
@@ -229,6 +298,7 @@ export default async function handler(
           route: 'https://www.onemap.gov.sg/api/public/routingsvc/route',
         },
       },
+      rainfall,
     },
     timestamp: new Date().toISOString(),
   });

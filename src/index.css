@@ -21,11 +21,27 @@
 }
 
 /* Disqus embed.js parseColor() only supports rgb/rgba/hex/named colors, not Tailwind v4 oklch() */
-#disqus_thread {
-  color: rgb(15, 23, 42);
+html,
+body {
   background-color: rgb(248, 250, 252);
+  color: rgb(15, 23, 42);
 }
 
-#disqus_thread a {
+#disqus_thread {
+  color: rgb(15, 23, 42);
+  background-color: rgb(255, 255, 255);
+  color-scheme: light;
+}
+
+#disqus_thread span,
+#disqus_thread p,
+#disqus_thread div {
+  color: rgb(15, 23, 42);
+}
+
+#disqus_thread a,
+#disqus_thread a:link,
+#disqus_thread a:visited,
+#disqus_thread a:hover {
   color: rgb(37, 99, 235);
 }

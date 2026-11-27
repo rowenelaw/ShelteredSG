@@ -838,3 +838,103 @@ export function sampleRainAtCoords(
     nearestArea,
   };
 }
+
+interface DataGovRainfallStation {
+  id: string;
+  name: string;
+  location?: { latitude?: number; longitude?: number };
+}
+
+interface DataGovRainfallResponse {
+  code?: number;
+  data?: {
+    stations?: DataGovRainfallStation[];
+    readings?: Array<{
+      timestamp?: string;
+      data?: Array<{ stationId: string; value: number }>;
+    }>;
+  };
+}
+
+function inferSingaporeRegion(
+  lat: number,
+  lng: number
+): 'Central' | 'East' | 'West' | 'North' | 'North-East' {
+  if (lng < 103.79) return 'West';
+  if (lng > 103.89) return 'East';
+  if (lat > 1.4) return 'North';
+  if (lat > 1.35 && lng >= 103.85) return 'North-East';
+  return 'Central';
+}
+
+export async function fetchLiveRainfallSnapshot(): Promise<WeatherSnapshot | null> {
+  try {
+    const resp = await fetch('/api/rain', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as DataGovRainfallResponse;
+    const stations = json.data?.stations;
+    const latestReading = json.data?.readings?.[0];
+    if (!Array.isArray(stations) || !latestReading || !Array.isArray(latestReading.data)) {
+      return null;
+    }
+
+    const readingMap = new Map<string, number>();
+    for (const entry of latestReading.data) {
+      readingMap.set(entry.stationId, entry.value);
+    }
+
+    // data.gov.sg rainfall reports 5-minute accumulations in mm; multiply by 12 for mm/hr
+    const cells: RainCell[] = stations
+      .map((station): RainCell | null => {
+        const lat = Number(station.location?.latitude);
+        const lng = Number(station.location?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const fiveMinMm = readingMap.get(station.id) ?? 0;
+        const mmHr = Math.round(fiveMinMm * 12 * 10) / 10;
+        const severity = classifyRainSeverity(mmHr);
+        return {
+          id: `nea_${station.id}`,
+          areaName: station.name,
+          region: inferSingaporeRegion(lat, lng),
+          lat,
+          lng,
+          radiusKm: 3.0,
+          rainfallMmHr: mmHr,
+          severity,
+          forecast2Hr:
+            mmHr >= 24
+              ? 'Heavy Showers'
+              : mmHr >= 10
+              ? 'Moderate Rain'
+              : mmHr >= 0.5
+              ? 'Light Rain'
+              : 'Dry / Fair',
+          windKmh: 15,
+          windDirection: 'NE',
+          lightningRisk: mmHr >= 24,
+        };
+      })
+      .filter((c): c is RainCell => c !== null);
+
+    if (cells.length === 0) return null;
+    const maxRainfallMmHr = cells.reduce((max, c) => Math.max(max, c.rainfallMmHr), 0);
+    const wetCount = cells.filter((c) => c.rainfallMmHr >= 0.5).length;
+
+    return {
+      scenarioId: 'live_monsoon',
+      scenarioLabel: 'Live NEA Rainfall (data.gov.sg)',
+      updatedAtIso: latestReading.timestamp || new Date().toISOString(),
+      islandSummary:
+        wetCount > 0
+          ? `Live NEA station telemetry: ${wetCount} of ${cells.length} stations reporting active rain (peak ${maxRainfallMmHr.toFixed(1)} mm/hr).`
+          : `Live NEA station telemetry: all ${cells.length} stations currently reporting dry conditions.`,
+      maxRainfallMmHr,
+      windSummary: 'Live NEA 5-min station telemetry',
+      cells,
+    };
+  } catch {
+    return null;
+  }
+}

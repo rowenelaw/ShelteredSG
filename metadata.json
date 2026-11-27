@@ -2,5 +2,7 @@
   "name": "ShelteredSG — Rain-Aware Singapore Bus Routing",
   "description": "Singapore bus route planner and live arrival tracker that minimizes outdoor rain exposure while optimizing travel time and distance.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

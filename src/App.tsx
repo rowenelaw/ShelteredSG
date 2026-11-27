@@ -118,15 +118,29 @@ export default function App() {
     [weatherScenario]
   );
 
-  const disqusConfig = useMemo(
-    () => ({
-      url: typeof window !== 'undefined' ? window.location.href : '',
+  const disqusConfig = useMemo(() => {
+    const safeUrl =
+      typeof window !== 'undefined' && window.location.protocol.startsWith('http')
+        ? window.location.href.split('#')[0]
+        : 'https://shelteredsg.vercel.app/';
+
+    return {
+      url: safeUrl,
       identifier: 'shelteredsg-main',
       title: 'ShelteredSG — Rain-Aware Singapore Bus Routing',
       language: 'en',
-    }),
-    []
-  );
+      preData: () => {},
+      preInit: () => {},
+      onInit: () => {},
+      onReady: () => {},
+      afterRender: () => {},
+      preReset: () => {},
+      onIdentify: () => {},
+      beforeComment: (comment: unknown) => comment,
+      onNewComment: () => {},
+      onPaginate: () => {},
+    };
+  }, []);
 
   const handleManualRefresh = () => {
     setIsRefreshing(true);
@@ -317,10 +331,15 @@ export default function App() {
           />
         )}
 
-        <DiscussionEmbed
-          shortname='shelteredsg'
-          config={disqusConfig}
-        />
+        <section className="mt-6 bg-white border border-slate-200 rounded-xl p-5">
+          <h2 className="text-base font-semibold text-slate-900 mb-3">
+            Commuter Feedback & Route Notes
+          </h2>
+          <DiscussionEmbed
+            shortname="shelteredsg"
+            config={disqusConfig}
+          />
+        </section>
       </main>
 
       {/* Quiet Footer */}
