@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search, X } from 'lucide-react';
+import { searchOneMapPlaces } from '../services/oneMapService';
 import { searchSingaporePlaces, SearchSuggestion } from '../services/transitService';
 import { SingaporeLocation } from '../types/transit';
 
@@ -21,6 +22,7 @@ export const LocationSearchInput: React.FC<LocationSearchInputProps> = ({
   const [query, setQuery] = useState(value?.name ?? '');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIdx, setHighlightedIdx] = useState(0);
+  const [oneMapSuggestions, setOneMapSuggestions] = useState<SearchSuggestion[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,11 +42,45 @@ export const LocationSearchInput: React.FC<LocationSearchInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [value]);
 
-  const suggestions: SearchSuggestion[] = searchSingaporePlaces(query);
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!isOpen || trimmed.length < 3 || (value && trimmed === value.name)) {
+      setOneMapSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      const results = await searchOneMapPlaces(trimmed, controller.signal);
+      if (!controller.signal.aborted) {
+        setOneMapSuggestions(results);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, isOpen, value]);
+
+  const localSuggestions = useMemo(() => searchSingaporePlaces(query), [query]);
+
+  const suggestions: SearchSuggestion[] = useMemo(() => {
+    if (oneMapSuggestions.length === 0) return localSuggestions;
+    const seen = new Set(localSuggestions.map((s) => s.title.toLowerCase()));
+    const merged = [...localSuggestions];
+    for (const item of oneMapSuggestions) {
+      if (!seen.has(item.title.toLowerCase())) {
+        merged.push(item);
+      }
+    }
+    return merged.slice(0, 10);
+  }, [localSuggestions, oneMapSuggestions]);
 
   const handleChoose = (suggestion: SearchSuggestion) => {
     setQuery(suggestion.location.name);
     setIsOpen(false);
+    setOneMapSuggestions([]);
     onSelect(suggestion.location);
   };
 

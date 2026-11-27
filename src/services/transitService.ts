@@ -129,6 +129,124 @@ export function getBusStopArrivals(
   };
 }
 
+interface LtaRawBusSlot {
+  OriginCode?: string;
+  DestinationCode?: string;
+  EstimatedArrival?: string;
+  Load?: string;
+  Feature?: string;
+  Type?: string;
+  Latitude?: string;
+  Longitude?: string;
+}
+
+interface LtaRawService {
+  ServiceNo?: string;
+  Operator?: string;
+  NextBus?: LtaRawBusSlot;
+  NextBus2?: LtaRawBusSlot;
+  NextBus3?: LtaRawBusSlot;
+}
+
+interface LtaRawBusArrivalResponse {
+  BusStopCode?: string;
+  Services?: LtaRawService[];
+}
+
+function normalizeLtaSlot(
+  slot: LtaRawBusSlot | undefined,
+  fallbackStopCode: string
+): NextBusArrival | null {
+  if (!slot || !slot.EstimatedArrival) return null;
+  const etaMs = Date.parse(slot.EstimatedArrival);
+  if (Number.isNaN(etaMs)) return null;
+  const minutesAway = Math.max(0, Math.floor((etaMs - Date.now()) / 60000));
+
+  const load: BusLoad =
+    slot.Load === 'SDA' || slot.Load === 'LSD' ? slot.Load : 'SEA';
+  const type: BusType =
+    slot.Type === 'DD' || slot.Type === 'BD' ? slot.Type : 'SD';
+  const feature = slot.Feature === 'WAB' ? 'WAB' : 'STD';
+
+  return {
+    originCode: slot.OriginCode || fallbackStopCode,
+    destinationCode: slot.DestinationCode || fallbackStopCode,
+    estimatedArrivalIso: slot.EstimatedArrival,
+    minutesAway,
+    load,
+    feature,
+    type,
+    lat: parseFloat(slot.Latitude || '0') || 0,
+    lng: parseFloat(slot.Longitude || '0') || 0,
+  };
+}
+
+export async function fetchLiveBusStopArrivals(
+  busStopCode: string,
+  serviceNo?: string,
+  tickOffsetSec = 0
+): Promise<{ data: BusStopArrivalResponse; source: 'lta-live' | 'simulated' }> {
+  try {
+    const params = new URLSearchParams({ BusStopCode: busStopCode });
+    if (serviceNo?.trim()) {
+      params.set('ServiceNo', serviceNo.trim());
+    }
+    const resp = await fetch(`/api/busarrival?${params.toString()}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+    const raw = (await resp.json()) as LtaRawBusArrivalResponse;
+    if (!raw || !Array.isArray(raw.Services)) {
+      throw new Error('Malformed LTA response');
+    }
+
+    const mappedServices: BusServiceArrival[] = [];
+    for (const svc of raw.Services) {
+      const svcNo = svc.ServiceNo?.trim();
+      if (!svcNo) continue;
+      const nextBus = normalizeLtaSlot(svc.NextBus, busStopCode);
+      if (!nextBus) continue;
+
+      const op =
+        svc.Operator === 'SMRT' ||
+        svc.Operator === 'TTS' ||
+        svc.Operator === 'GAS'
+          ? svc.Operator
+          : 'SBST';
+
+      const destStop = STOP_MAP.get(nextBus.destinationCode);
+      mappedServices.push({
+        serviceNo: svcNo,
+        operator: op,
+        destinationName: destStop?.name ?? getDestinationForService(svcNo),
+        nextBus,
+        nextBus2: normalizeLtaSlot(svc.NextBus2, busStopCode),
+        nextBus3: normalizeLtaSlot(svc.NextBus3, busStopCode),
+      });
+    }
+
+    mappedServices.sort(
+      (a, b) => a.nextBus.minutesAway - b.nextBus.minutesAway
+    );
+
+    return {
+      source: 'lta-live',
+      data: {
+        busStopCode: raw.BusStopCode || busStopCode,
+        updatedAtIso: new Date().toISOString(),
+        services: mappedServices,
+      },
+    };
+  } catch {
+    return {
+      source: 'simulated',
+      data: getBusStopArrivals(busStopCode, tickOffsetSec),
+    };
+  }
+}
+
 export interface SearchSuggestion {
   id: string;
   title: string;

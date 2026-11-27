@@ -1,9 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Bookmark, Bus, CloudRain, Search, ShieldCheck } from 'lucide-react';
 import { SINGAPORE_BUS_STOPS } from '../data/singaporeTransitData';
-import { getBusStopArrivals } from '../services/transitService';
+import {
+  fetchLiveBusStopArrivals,
+  getBusStopArrivals,
+} from '../services/transitService';
 import { sampleRainAtCoords } from '../services/weatherService';
-import { BusLoad, BusStop, WeatherSnapshot } from '../types/transit';
+import {
+  BusLoad,
+  BusStop,
+  BusStopArrivalResponse,
+  WeatherSnapshot,
+} from '../types/transit';
 
 interface LiveBusArrivalsViewProps {
   selectedStopId: string;
@@ -53,13 +61,68 @@ export const LiveBusArrivalsView: React.FC<LiveBusArrivalsViewProps> = ({
     );
   }, [searchQuery]);
 
-  const activeStop =
-    SINGAPORE_BUS_STOPS.find((s) => s.id === selectedStopId) ?? SINGAPORE_BUS_STOPS[0];
+  const activeStop: BusStop = useMemo(() => {
+    const known = SINGAPORE_BUS_STOPS.find((s) => s.id === selectedStopId);
+    if (known) return known;
+    return {
+      id: selectedStopId,
+      name: `Bus Stop ${selectedStopId}`,
+      roadName: 'Singapore LTA Network',
+      region: 'Central',
+      lat: 1.3005,
+      lng: 103.8515,
+      hasShelter: true,
+      services: ['7', '14', '65', '106'],
+    };
+  }, [selectedStopId]);
 
-  const arrivalData = useMemo(
-    () => getBusStopArrivals(activeStop.id, tickOffsetSec),
-    [activeStop.id, tickOffsetSec]
-  );
+  const [liveState, setLiveState] = useState<{
+    stopId: string;
+    data: BusStopArrivalResponse;
+    source: 'lta-live' | 'simulated';
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadArrivals = async () => {
+      const result = await fetchLiveBusStopArrivals(
+        activeStop.id,
+        undefined,
+        tickOffsetSec
+      );
+      if (!cancelled) {
+        setLiveState({
+          stopId: activeStop.id,
+          data: result.data,
+          source: result.source,
+        });
+      }
+    };
+
+    void loadArrivals();
+    // LTA DataMall BusArrival v3 refreshes every 20 seconds
+    const poll = setInterval(() => {
+      void loadArrivals();
+    }, 20000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, [activeStop.id, tickOffsetSec]);
+
+  const arrivalData = useMemo(() => {
+    if (liveState && liveState.stopId === activeStop.id) {
+      return liveState.data;
+    }
+    return getBusStopArrivals(activeStop.id, tickOffsetSec);
+  }, [liveState, activeStop.id, tickOffsetSec]);
+
+  const dataSource =
+    liveState && liveState.stopId === activeStop.id
+      ? liveState.source
+      : 'simulated';
 
   const visibleServices = useMemo(() => {
     const f = serviceFilter.trim().toLowerCase();
@@ -105,8 +168,21 @@ export const LiveBusArrivalsView: React.FC<LiveBusArrivalsViewProps> = ({
 
         <div className="max-h-[540px] overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-lg">
           {filteredStops.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-500">
-              No matching bus stops found. Try codes like 09048, 03218, or 28009.
+            <div className="p-5 text-center text-xs text-slate-500 space-y-3">
+              <div>
+                No preset bus stops match "{searchQuery.trim()}".
+              </div>
+              {/^\d{5}$/.test(searchQuery.trim()) ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectStopId(searchQuery.trim())}
+                  className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Query LTA Stop {searchQuery.trim()}
+                </button>
+              ) : (
+                <div>Try 5-digit codes like 04121, 09048, 03218, or 28009.</div>
+              )}
             </div>
           ) : (
             filteredStops.map((stop) => {
@@ -205,8 +281,18 @@ export const LiveBusArrivalsView: React.FC<LiveBusArrivalsViewProps> = ({
 
         {/* Service Filter */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm font-medium text-slate-700">
-            Live Bus Arrivals ({visibleServices.length} services)
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <span>Live Bus Arrivals ({visibleServices.length} services)</span>
+            <span aria-hidden="true" className="text-slate-300">·</span>
+            <span
+              className={`text-xs font-normal ${
+                dataSource === 'lta-live' ? 'text-emerald-700' : 'text-slate-500'
+              }`}
+            >
+              {dataSource === 'lta-live'
+                ? 'LTA DataMall Live (20s)'
+                : 'Simulated Feed'}
+            </span>
           </div>
           <input
             type="text"

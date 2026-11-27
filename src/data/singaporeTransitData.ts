@@ -232,6 +232,17 @@ export const SINGAPORE_LOCATIONS: SingaporeLocation[] = [
 
 export const SINGAPORE_BUS_STOPS: BusStop[] = [
   {
+    id: '04121',
+    name: 'High St Ctr',
+    roadName: 'North Bridge Rd',
+    region: 'Central',
+    lat: 1.2894,
+    lng: 103.8492,
+    hasShelter: true,
+    coveredLinkwayTo: 'Clarke Quay MRT & High St Ctr Covered Arcade',
+    services: ['7', '32', '51', '61', '63', '80', '124', '145', '166', '174', '197', '851'],
+  },
+  {
     id: '09048',
     name: 'Orchard Stn / Tang Plaza',
     roadName: 'Orchard Rd',
