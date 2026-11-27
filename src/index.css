@@ -19,3 +19,13 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Disqus embed.js parseColor() only supports rgb/rgba/hex/named colors, not Tailwind v4 oklch() */
+#disqus_thread {
+  color: rgb(15, 23, 42);
+  background-color: rgb(248, 250, 252);
+}
+
+#disqus_thread a {
+  color: rgb(37, 99, 235);
+}

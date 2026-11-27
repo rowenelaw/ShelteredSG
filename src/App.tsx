@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { DiscussionEmbed } from 'disqus-react';
 import { LiveBusArrivalsView } from './components/LiveBusArrivalsView';
 import { RainRadarView } from './components/RainRadarView';
 import { RoutePlannerView } from './components/RoutePlannerView';
@@ -115,6 +116,16 @@ export default function App() {
   const weather = useMemo(
     () => getWeatherSnapshot(weatherScenario, 0),
     [weatherScenario]
+  );
+
+  const disqusConfig = useMemo(
+    () => ({
+      url: typeof window !== 'undefined' ? window.location.href : '',
+      identifier: 'shelteredsg-main',
+      title: 'ShelteredSG — Rain-Aware Singapore Bus Routing',
+      language: 'en',
+    }),
+    []
   );
 
   const handleManualRefresh = () => {
@@ -305,6 +316,11 @@ export default function App() {
             tickOffsetSec={tickOffsetSec}
           />
         )}
+
+        <DiscussionEmbed
+          shortname='shelteredsg'
+          config={disqusConfig}
+        />
       </main>
 
       {/* Quiet Footer */}
